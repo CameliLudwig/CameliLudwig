@@ -1,0 +1,44 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "mkdir",
+            "type": "shell",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "command": "mkdir",
+            "args": [
+                "-Force",
+                "build"
+            ]
+        },
+        {
+            "label": "msvc-qmake-debug",
+            "type": "process",
+            "options": {
+                "cwd": "${workspaceFolder}/build"
+            },
+            "command": ".\\msvc_qmake_debug.bat",
+            "args": [],
+            "dependsOn": ["mkdir"]
+        },
+        {
+            "label": "msvc-nmake-debug",
+            "type": "process",
+            "options": {
+                "cwd": "${workspaceFolder}/build"
+            },
+            "command": ".\\msvc_nmake_debug.bat",
+            "args": [],
+            "dependsOn": ["msvc-qmake-debug"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ]
+        }
+    ]
+}

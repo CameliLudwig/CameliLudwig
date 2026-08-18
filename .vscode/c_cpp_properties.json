@@ -1,0 +1,34 @@
+{
+  "configurations": [
+    {
+      "name": "windows-msvc-x64",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "D:/QT/5.12.9/5.12.9/msvc2017_64/include",
+        "D:/QT/5.12.9/5.12.9/msvc2017_64/include/QtCore",
+        "D:/QT/5.12.9/5.12.9/msvc2017_64/include/QtGui",
+        "D:/QT/5.12.9/5.12.9/msvc2017_64/include/QtWidgets",
+        "D:/QT/5.12.9/5.12.9/msvc2017_64/include/QtPrintSupport",
+        "D:/QT/5.12.9/5.12.9/msvc2017_64/include/QtSerialPort",
+        "D:/QT/5.12.9/5.12.9/msvc2017_64/include/ActiveQt"
+      ],
+      "defines": [
+        "UNICODE",
+        "_UNICODE",
+        "QT_DEPRECATED_WARNINGS",
+        "QT_AXCONTAINER_LIB",
+        "QT_AXBASE_LIB",
+        "QT_PRINTSUPPORT_LIB",
+        "QT_WIDGETS_LIB",
+        "QT_GUI_LIB",
+        "QT_SERIALPORT_LIB",
+        "QT_CORE_LIB"
+      ],
+      "compilerPath": "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe",
+      "cStandard": "c11",
+      "cppStandard": "c++14",
+      "intelliSenseMode": "windows-msvc-x64"
+    }
+  ],
+  "version": 4
+}

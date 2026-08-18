@@ -1,0 +1,271 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>UserAdminDialog</class>
+ <widget class="QDialog" name="UserAdminDialog">
+  <property name="windowTitle">
+   <string>用户权限管理系统</string>
+  </property>
+  <layout class="QGridLayout" name="outerLayout">
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+
+   <!-- 顶部栏：放置关闭按钮 -->
+   <item row="0" column="0" colspan="3">
+    <layout class="QHBoxLayout" name="topBarLayout">
+     <property name="topMargin"><number>20</number></property>
+     <property name="rightMargin"><number>20</number></property>
+     <item>
+      <spacer name="topSpacer">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btnExitSystem">
+       <property name="text"><string>×</string></property>
+       <property name="toolTip"><string>退出系统</string></property>
+       <property name="cursor"><cursorShape>PointingHandCursor</cursorShape></property>
+       <property name="focusPolicy"><enum>Qt::NoFocus</enum></property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+
+   <!-- 左侧弹簧 -->
+   <item row="1" column="0">
+    <spacer name="leftSpacer">
+     <property name="orientation"><enum>Qt::Horizontal</enum></property>
+    </spacer>
+   </item>
+
+   <!-- 中间核心卡片 -->
+   <item row="1" column="1">
+    <widget class="QFrame" name="panelFrame">
+     <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
+     <property name="frameShadow"><enum>QFrame::Raised</enum></property>
+     <layout class="QVBoxLayout" name="panelLayout">
+      <property name="leftMargin"><number>40</number></property>
+      <property name="topMargin"><number>40</number></property>
+      <property name="rightMargin"><number>40</number></property>
+      <property name="bottomMargin"><number>40</number></property>
+      <property name="spacing"><number>20</number></property>
+
+      <item>
+       <widget class="QLabel" name="title">
+        <property name="text"><string>系统登录</string></property>
+        <property name="alignment"><set>Qt::AlignCenter</set></property>
+       </widget>
+      </item>
+
+      <item>
+       <widget class="QTabWidget" name="tab">
+        <property name="currentIndex"><number>0</number></property>
+
+        <!-- 登录页 -->
+        <widget class="QWidget" name="pageLogin">
+         <attribute name="title"><string>身份验证</string></attribute>
+         <layout class="QVBoxLayout" name="v_login">
+          <property name="spacing"><number>20</number></property>
+          <property name="leftMargin"><number>20</number></property>
+          <property name="topMargin"><number>30</number></property>
+          <property name="rightMargin"><number>20</number></property>
+          <property name="bottomMargin"><number>20</number></property>
+
+          <item>
+           <widget class="QLabel" name="lblUserIcon"><property name="text"><string>选择用户</string></property></widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="userCombo"/>
+          </item>
+          <item>
+           <widget class="QLabel" name="lblPwdIcon"><property name="text"><string>登录密码</string></property></widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="loginPwd">
+            <property name="echoMode"><enum>QLineEdit::Password</enum></property>
+            <property name="placeholderText"><string>请输入密码</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="loginSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnLogin">
+            <property name="text"><string>立即登录</string></property>
+            <property name="cursor"><cursorShape>PointingHandCursor</cursorShape></property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+
+        <!-- 修改密码页 -->
+        <widget class="QWidget" name="pageChange">
+         <attribute name="title"><string>修改密码</string></attribute>
+         <layout class="QFormLayout" name="formChange">
+          <property name="horizontalSpacing"><number>15</number></property>
+          <property name="verticalSpacing"><number>15</number></property>
+          <property name="topMargin"><number>20</number></property>
+
+          <item row="0" column="0"><widget class="QLabel" name="lc_u"><property name="text"><string>用户名</string></property></widget></item>
+          <item row="0" column="1"><widget class="QComboBox" name="cpUserCombo"/></item>
+
+          <item row="1" column="0"><widget class="QLabel" name="lc_o"><property name="text"><string>旧密码</string></property></widget></item>
+          <item row="1" column="1"><widget class="QLineEdit" name="cpOldPwd"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+
+          <item row="2" column="0"><widget class="QLabel" name="lc_n1"><property name="text"><string>新密码</string></property></widget></item>
+          <item row="2" column="1"><widget class="QLineEdit" name="cpNewPwd"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+
+          <item row="3" column="0"><widget class="QLabel" name="lc_n2"><property name="text"><string>确认新密码</string></property></widget></item>
+          <item row="3" column="1"><widget class="QLineEdit" name="cpNewPwd2"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+
+          <item row="4" column="1"><widget class="QPushButton" name="btnCpApply"><property name="text"><string>确认修改</string></property></widget></item>
+         </layout>
+        </widget>
+
+        <!-- 管理员页 -->
+        <widget class="QWidget" name="pageAdmin">
+         <attribute name="title"><string>系统管理</string></attribute>
+         <layout class="QVBoxLayout" name="v_admin_main">
+           <!-- 管理员验证区域 -->
+           <item>
+            <widget class="QGroupBox" name="grpVerify">
+             <property name="title"><string>权限验证</string></property>
+             <layout class="QHBoxLayout" name="h_ver">
+              <item><widget class="QLineEdit" name="adminPin"><property name="echoMode"><enum>QLineEdit::Password</enum></property><property name="placeholderText"><string>请输入管理员口令</string></property></widget></item>
+              <item><widget class="QPushButton" name="btnVerify"><property name="text"><string>验证</string></property></widget></item>
+             </layout>
+            </widget>
+           </item>
+
+           <!-- 堆叠区域 -->
+           <item>
+            <widget class="QStackedWidget" name="adminStack">
+             <property name="currentIndex"><number>0</number></property>
+
+             <!-- 未验证状态 -->
+             <widget class="QWidget" name="pageAdminCompact">
+              <layout class="QVBoxLayout" name="v_compact">
+               <item>
+                <spacer name="compactSpacer"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer>
+               </item>
+               <item>
+                <widget class="QLabel" name="lblCompact">
+                 <property name="text"><string>请验证管理员身份以管理人员数据</string></property>
+                 <property name="alignment"><set>Qt::AlignCenter</set></property>
+                 <property name="styleSheet"><string>color: #888;</string></property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="compactSpacer2"><property name="orientation"><enum>Qt::Vertical</enum></property></spacer>
+               </item>
+              </layout>
+             </widget>
+
+             <!-- 已验证：管理面板 -->
+             <widget class="QWidget" name="pageAdminPanel">
+              <layout class="QVBoxLayout" name="v_panel">
+               <property name="margin"><number>0</number></property>
+               <item>
+                <widget class="QScrollArea" name="adminScroll">
+                 <property name="widgetResizable"><bool>true</bool></property>
+                 <widget class="QWidget" name="adminScrollContents">
+                  <layout class="QVBoxLayout" name="v_scroll">
+                   <item>
+                    <widget class="QGroupBox" name="grpUsers">
+                     <property name="title"><string>人员数据库</string></property>
+                     <layout class="QHBoxLayout" name="h_users">
+                      <item>
+                       <widget class="QListWidget" name="userList"/>
+                      </item>
+                      <item>
+                       <layout class="QVBoxLayout" name="v_ops">
+                        <!-- 添加人员 -->
+                        <item>
+                         <widget class="QGroupBox" name="gbAdd">
+                          <property name="title"><string>新增用户</string></property>
+                          <layout class="QFormLayout" name="formAdd">
+                           <item row="0" column="0"><widget class="QLabel" name="la1"><property name="text"><string>用户名</string></property></widget></item>
+                           <item row="0" column="1"><widget class="QLineEdit" name="addName"/></item>
+                           <item row="1" column="0"><widget class="QLabel" name="la2"><property name="text"><string>密码</string></property></widget></item>
+                           <item row="1" column="1"><widget class="QLineEdit" name="addPwd"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+                           <item row="2" column="0"><widget class="QLabel" name="la3"><property name="text"><string>确认</string></property></widget></item>
+                           <item row="2" column="1"><widget class="QLineEdit" name="addPwd2"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+                           <item row="3" column="1"><widget class="QPushButton" name="btnAdd"><property name="text"><string>添加</string></property></widget></item>
+                          </layout>
+                         </widget>
+                        </item>
+
+                        <!-- 重命名 -->
+                        <item>
+                         <widget class="QGroupBox" name="gbRename">
+                          <property name="title"><string>用户维护</string></property>
+                          <layout class="QVBoxLayout" name="v_ren">
+                           <item><widget class="QLineEdit" name="renameEdit"><property name="placeholderText"><string>新用户名</string></property></widget></item>
+                           <item><widget class="QPushButton" name="btnRename"><property name="text"><string>重命名选中用户</string></property></widget></item>
+                          </layout>
+                         </widget>
+                        </item>
+
+                        <!-- 重置密码 -->
+                        <item>
+                         <widget class="QGroupBox" name="gbReset">
+                          <property name="title"><string>强制重置密码</string></property>
+                          <layout class="QFormLayout" name="formReset">
+                           <item row="0" column="0"><widget class="QLabel" name="lr1"><property name="text"><string>新密码</string></property></widget></item>
+                           <item row="0" column="1"><widget class="QLineEdit" name="resetPwd"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+                           <item row="1" column="0"><widget class="QLabel" name="lr2"><property name="text"><string>确认</string></property></widget></item>
+                           <item row="1" column="1"><widget class="QLineEdit" name="resetPwd2"><property name="echoMode"><enum>QLineEdit::Password</enum></property></widget></item>
+                           <item row="2" column="1"><widget class="QPushButton" name="btnReset"><property name="text"><string>重置</string></property></widget></item>
+                          </layout>
+                         </widget>
+                        </item>
+
+                        <item>
+                         <widget class="QPushButton" name="btnDelete">
+                          <property name="text"><string>删除选中用户</string></property>
+                          <property name="styleSheet"><string>background-color: #ff5252; color: white;</string></property>
+                         </widget>
+                        </item>
+                       </layout>
+                      </item>
+                     </layout>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </widget>
+           </item>
+         </layout>
+        </widget>
+
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- 右侧弹簧 -->
+   <item row="1" column="2">
+    <spacer name="rightSpacer">
+     <property name="orientation"><enum>Qt::Horizontal</enum></property>
+    </spacer>
+   </item>
+
+   <!-- 底部弹簧 -->
+   <item row="2" column="0" colspan="3">
+    <spacer name="bottomSpacer">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+    </spacer>
+   </item>
+
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
