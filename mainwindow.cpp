@@ -17,6 +17,9 @@
 #include <QTimer>
 #include <QtSerialPort/QSerialPort>
 #include <QApplication>
+#include <QtConcurrent/QtConcurrent>
+#include <QThread>
+#include <QMetaObject>
 
 uint16 MainWindow::SetBit(uint16 data, int bitPos, int value)
 {
@@ -126,13 +129,106 @@ void MainWindow::closeAllDevices()
 {
     LOG("=== 开始关闭所有设备 ===");
 
+    // 停止并停用由 MainWindow 管理的 FlexRay 定时器（仅重连定时器）
+    if (m_flexray_reconnect_timer) {
+        m_flexray_reconnect_timer->stop();
+    }
+
     // 1. 停止 FlexRay
     if (m_flexRayThread) {
         LOG("停止 FlexRay...");
-        m_flexRayThread->stop();
-        m_flexRayThread->wait(3000);
+        // 请求停止（通过 queued 调用进入 worker 线程）
+        QMetaObject::invokeMethod(m_flexRayThread, "stop", Qt::QueuedConnection);
+
+        // 等待 worker 状态变为不运行（m_running==false），分步等待以便记录进度（总计 15s）
+        const int stepMs = 1000;
+        const int maxTotalMs = 15000;
+        int waited = 0;
+        bool exited = false;
+        while (waited < maxTotalMs) {
+            if (!m_flexRayThread->isRunning()) {
+                exited = true;
+                break;
+            }
+            waited += stepMs;
+            LOG(QString("等待 FlexRay 退出... %1/%2 ms").arg(waited).arg(maxTotalMs));
+            QCoreApplication::processEvents();
+            QThread::msleep(stepMs);
+        }
+
+        if (!exited) {
+            // 超时，询问用户是否强制终止
+            QMessageBox::StandardButton btn = QMessageBox::warning(this,
+                "FlexRay 线程未退出",
+                "FlexRay 线程在 15 秒内未退出。\n强制终止可能导致资源泄露或不稳定。\n是否要强制终止？",
+                QMessageBox::Abort | QMessageBox::Retry,
+                QMessageBox::Retry);
+
+            if (btn == QMessageBox::Abort) {
+                LOG("用户选择强制终止 FlexRay 线程");
+                // 强制终止 worker 所在的 QThread（最后手段）
+                if (m_flexRayWorkerThread) {
+                    m_flexRayWorkerThread->terminate();
+                    if (m_flexRayWorkerThread->wait(2000)) {
+                        LOG("强制终止后 FlexRay worker 线程已退出");
+                    } else {
+                        LOG("强制终止后 FlexRay worker 线程仍未退出");
+                    }
+                }
+            } else {
+                // 再等 10s（用户选择再等等）
+                LOG("用户选择再等待 10 秒");
+                int extraWait = 10000;
+                int waitedExtra = 0;
+                while (waitedExtra < extraWait) {
+                    if (!m_flexRayThread->isRunning()) break;
+                    QCoreApplication::processEvents();
+                    QThread::msleep(500);
+                    waitedExtra += 500;
+                }
+                if (m_flexRayThread->isRunning()) {
+                    LOG("额外等待后仍未退出，准备强制终止 worker 线程");
+                    if (m_flexRayWorkerThread) {
+                        m_flexRayWorkerThread->terminate();
+                        m_flexRayWorkerThread->wait(2000);
+                    }
+                }
+            }
+        }
+
+        // 在删除 worker 对象前，若有后台启动任务在运行，短等其完成以避免 use-after-free
+//        if (m_flexray_start_future.isValid()) {
+//            // poll for up to 2000 ms
+//            int waitedMs = 0;
+//            const int step = 50;
+//            while (!m_flexray_start_future.isFinished() && waitedMs < 2000) {
+//                QThread::msleep(step);
+//                QCoreApplication::processEvents();
+//                waitedMs += step;
+//            }
+//            if (m_flexray_start_future.isFinished()) {
+//                LOG("后台启动任务已完成");
+//            } else {
+//                LOG("后台启动任务仍在运行（等待 2s 后仍未完成），将继续删除 worker 对象，可能不安全");
+//            }
+//        }
+
+        // 删除 worker 对象并清理线程
+        if (m_flexRayWorkerThread) {
+            // 停止事件循环并等待线程退出（给予短超时）
+            m_flexRayWorkerThread->quit();
+            if (!m_flexRayWorkerThread->wait(1000)) {
+                LOG("警告: worker 线程在 quit 后仍未退出");
+            }
+        }
+
         delete m_flexRayThread;
         m_flexRayThread = nullptr;
+        if (m_flexRayWorkerThread) {
+            delete m_flexRayWorkerThread;
+            m_flexRayWorkerThread = nullptr;
+        }
+
         LOG("FlexRay 已停止");
     }
 
@@ -444,11 +540,36 @@ void MainWindow::initDevices()
         LOG("顶部组件 COM11 打开失败");
     }
 
-    // FlexRay 启动 — 单独延后, 不阻塞
-    QTimer::singleShot(500, this, [this]() {
-        LOG("FlexRay 开始启动...");
-        m_flexRayThread->startFlexRayOperation();
-    });
+    // Flex/Ray 启动 — 单独延后, 不阻塞
+    {
+        QPointer<MainWindow> safeThis(this);
+        QTimer::singleShot(500, this, [safeThis]() {
+            if (!safeThis) return;
+            // 防止重入：如果已有启动进行中则跳过
+            if (safeThis->m_flexStartInProgress.load()) {
+                LOG("FlexRay 启动请求被忽略：已有启动进行中");
+                return;
+            }
+            LOG("FlexRay 开始启动 (queued)...");
+            // 如果没有 worker 或 worker 已被删除则不调用
+            if (!safeThis->m_flexRayThread) return;
+            // 标记启动中，避免定时器重复触发造成重入
+            safeThis->m_flexStartInProgress.store(true);
+            // 停止重连定时器在启动期间避免重复排队
+            if (safeThis->m_flexray_reconnect_timer) safeThis->m_flexray_reconnect_timer->stop();
+            // 将 start 请求排入 FlexRay worker 的事件队列（安全，非阻塞 UI）
+            QMetaObject::invokeMethod(safeThis->m_flexRayThread, "startFlexRayOperation", Qt::QueuedConnection);
+            // 启动一个超时看门器：若在超时内未能建立连接，则清理 in-progress 标记并启动重连定时器
+            QTimer::singleShot(15000, safeThis.data(), [safeThis]() {
+                if (!safeThis) return;
+                if (safeThis->m_flexStartInProgress.load()) {
+                    LOG("FlexRay 启动超时：清除启动标志并启动重连定时器");
+                    safeThis->m_flexStartInProgress.store(false);
+                    if (safeThis->m_flexray_reconnect_timer) safeThis->m_flexray_reconnect_timer->start();
+                }
+            });
+        });
+    }
     LOG("initDevices 完成");
 }
 
@@ -459,6 +580,48 @@ void MainWindow::initFlexRayConnections()
     m_flexRayThread = new FlexRayThread();
     LOG("FlexRayThread 已创建");
 
+    // 创建并启动用于承载 FlexRay worker 的 QThread，并将 worker 移到该线程
+    m_flexRayWorkerThread = new QThread(this);
+    m_flexRayThread->moveToThread(m_flexRayWorkerThread);
+    // 确保线程退出时自动删除 worker 对象由 MainWindow 负责删除
+    m_flexRayWorkerThread->start();
+    LOG(QString("moveToThread done: workerThread=%1 isRunning=%2 workerAffinity=%3")
+        .arg((quintptr)m_flexRayWorkerThread,0,16).arg(m_flexRayWorkerThread->isRunning()).arg((quintptr)m_flexRayThread->thread(),0,16));
+
+    // 创建并管理由 MainWindow 负责的定时器（仅重连定时器）
+    m_flexray_reconnect_timer = new QTimer(this);
+    m_flexray_reconnect_timer->setInterval(3000);
+    m_flexray_reconnect_timer->setSingleShot(false);
+    {
+        QPointer<MainWindow> safeThis(this);
+        connect(m_flexray_reconnect_timer, &QTimer::timeout, this, [safeThis]() {
+            if (!safeThis) return;
+            // 如果线程正在运行则不需要重连
+            if (!safeThis->m_flexRayThread) return;
+            if (safeThis->m_flexRayThread->isRunning()) return;
+            // 如果已有启动进行中则跳过本次重连触发
+            if (safeThis->m_flexStartInProgress.load()) {
+                LOG("FlexRay reconnect timer: 忽略，已有启动进行中");
+                return;
+            }
+            LOG("FlexRay reconnect timer: 尝试启动 (queued)...");
+            // 标记正在启动并停止重连定时器，避免重复排队
+            safeThis->m_flexStartInProgress.store(true);
+            if (safeThis->m_flexray_reconnect_timer) safeThis->m_flexray_reconnect_timer->stop();
+            // 将 start 请求排入 FlexRay worker 的事件队列（安全，非阻塞 UI）
+            QMetaObject::invokeMethod(safeThis->m_flexRayThread, "startFlexRayOperation", Qt::QueuedConnection);
+            // 超时保护：若15s内未完成，则清除 in-progress 并重启重连定时器
+            QTimer::singleShot(15000, safeThis.data(), [safeThis]() {
+                if (!safeThis) return;
+                if (safeThis->m_flexStartInProgress.load()) {
+                    LOG("FlexRay reconnect 超时：清除启动标志并重启重连定时器");
+                    safeThis->m_flexStartInProgress.store(false);
+                    if (safeThis->m_flexray_reconnect_timer) safeThis->m_flexray_reconnect_timer->start();
+                }
+            });
+        });
+    }
+
     bool connected = QObject::connect(m_flexRayThread, &FlexRayThread::flexRayDataReceived,
                      this, &MainWindow::show_data, Qt::QueuedConnection);
     if (connected) {
@@ -467,31 +630,44 @@ void MainWindow::initFlexRayConnections()
         LOG("FlexRay data信号连接: 失败!!! 类型不匹配!");
         QMessageBox::critical(nullptr, "FlexRay 错误", "信号连接失败! 类型不匹配");
     }
-    QObject::connect(m_flexRayThread, &FlexRayThread::error, [this](const QString &err){
+    QObject::connect(m_flexRayThread, &FlexRayThread::error, this, [this](const QString &err){
             qDebug() << "FlexRay错误:" << err;
             LOG("FlexRay错误: " + err);
+            // 清理启动中标志（启动失败）
+            m_flexStartInProgress.store(false);
+            // 确保在 GUI 线程创建对话框: 使用 queued connection 或者再次通过 invokeMethod 到主线程执行
             QMessageBox *msgBox = new QMessageBox(QMessageBox::Warning, "FlexRay错误", err, QMessageBox::Ok, this);
             msgBox->setAttribute(Qt::WA_DeleteOnClose);
             msgBox->show();
-        });
-    QObject::connect(m_flexRayThread, &FlexRayThread::connectionLost, [this](){
+            // 启动重连定时器以便稍后重试
+            if (m_flexray_reconnect_timer) m_flexray_reconnect_timer->start();
+        }, Qt::QueuedConnection);
+    QObject::connect(m_flexRayThread, &FlexRayThread::connectionLost, this, [this](){
             qDebug() << "FlexRay连接丢失";
             LOG("FlexRay连接丢失");
+            // 清理启动中标志（若在尝试启动时发生断开）
+            m_flexStartInProgress.store(false);
             ui->lineEdit_16->setText("0");
             ui->lineEdit_15->setText("0");
 
             QMessageBox *msgBox = new QMessageBox(QMessageBox::Critical, "FlexRay", "连接丢失，正在尝试重连...", QMessageBox::Ok, this);
             msgBox->setAttribute(Qt::WA_DeleteOnClose);
             msgBox->show();
-        });
-    QObject::connect(m_flexRayThread, &FlexRayThread::connectionRestored, [this](){
+
+            // 启动重连定时器
+            if (m_flexray_reconnect_timer) m_flexray_reconnect_timer->start();
+        }, Qt::QueuedConnection);
+    QObject::connect(m_flexRayThread, &FlexRayThread::connectionRestored, this, [this](){
             qDebug() << "FlexRay连接恢复";
             LOG("FlexRay连接恢复");
 
             QMessageBox *msgBox = new QMessageBox(QMessageBox::Information, "FlexRay", "连接已恢复", QMessageBox::Ok, this);
             msgBox->setAttribute(Qt::WA_DeleteOnClose);
             msgBox->show();
-        });
+
+            // 停止重连定时器
+            if (m_flexray_reconnect_timer) m_flexray_reconnect_timer->stop();
+        }, Qt::QueuedConnection);
 
     // AB灯: 节点状态做门控 + 超时强制灭
     QObject::connect(m_flexRayThread, &FlexRayThread::abChannelChanged,
@@ -500,12 +676,12 @@ void MainWindow::initFlexRayConnections()
         m_abNodeBOk = chB;
         if (!chA) ui->lineEdit_16->setText("0");
         if (!chB) ui->lineEdit_15->setText("0");
-    });
+    }, Qt::QueuedConnection);
     QObject::connect(m_flexRayThread, &FlexRayThread::abFrameTimeout,
                      this, [this]() {
         ui->lineEdit_16->setText("0");
         ui->lineEdit_15->setText("0");
-    });
+    }, Qt::QueuedConnection);
 
     QObject::connect(this, &MainWindow::flexSend,
                      m_flexRayThread, &FlexRayThread::flexRayDataSend);
@@ -1296,5 +1472,3 @@ QList<ReportRow> MainWindow::collectTopComponentRows() const
 
     return rows;
 }
-
-

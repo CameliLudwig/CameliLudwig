@@ -9,6 +9,8 @@
 #include <QMap>
 #include <QDateTime>
 #include <QList>
+#include <QFuture>
+#include <atomic>
 #include "radarboard.h"
 #include "digitaliocontroller.h"
 #include "flexraythread.h"
@@ -111,6 +113,17 @@ private:
     DiwoSerial *m_diwo = nullptr;
     QSerialPort *m_topSerial = nullptr;   // 顶部组件串口 (groupBox_5)
     QByteArray m_topSerialBuffer;          // 顶部组件接收缓冲
+
+    // FlexRay timers（由 MainWindow 管理）
+    QTimer *m_flexray_reconnect_timer = nullptr;  // 3s 重连尝试
+
+    // FlexRay worker thread
+    QThread *m_flexRayWorkerThread = nullptr;
+
+    // 启动任务 future （用于后台执行 startFlexRayOperation），保留以检查后台启动完成
+    QFuture<void> m_flexray_start_future;
+    // Guard to prevent reentrant start requests from timers
+    std::atomic<bool> m_flexStartInProgress{false};
 
     int m_flexRayTxCounter = 0;
     bool m_abNodeAOk = true;

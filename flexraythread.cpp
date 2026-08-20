@@ -1,6 +1,10 @@
 ﻿#include "flexraythread.h"
 #include "applogger.h"
 #include <QElapsedTimer>
+#include <QMetaObject>
+#include <QtConcurrent/QtConcurrent>
+#include <QFuture>
+#include <QFutureWatcher>
 
 //初始化flexray总线的cluster参数
 FlexrayClusterParameter_t mFlexrayClusterParameter{
@@ -137,41 +141,33 @@ FlexRayThread::FlexRayThread()  {
     m_instance2 = 0;
 
 
-    m_timer_state = new QTimer(this);
-    connect(m_timer_state, &QTimer::timeout, this, &FlexRayThread::updatestate);
-
-
-    m_timer_reconnect = new QTimer(this);
-    m_timer_reconnect->setInterval(3000);    // 每 3 秒尝试一次重连，可按需调整
-    m_timer_reconnect->setSingleShot(false);
-    connect(m_timer_reconnect, &QTimer::timeout, this, [this]() {
-        // 已经在跑就不重连
-        if (m_running)
-            return;
-
-        // 尝试启动
-        this->startFlexRayOperation();
-
-        // 如果启动成功，stop() 里会开启 run() 和 m_timer_state
-        if (m_running) {
-            emit connectionRestored();
-            m_timer_reconnect->stop();
-        }
-    });
 
 }
 bool FlexRayThread::checkoutflexray()
 {
     const char* charPtr = "192.168.0.7";  // 使用 const char* 类型
     const char* charPtr2 = "192.168.0.8";  // 使用 const char* 类型
-    // 使用 const_cast 进行强制类型转换
-    m_instance = UFr_Open_Wrapper(const_cast<char*>(charPtr));
-    if (m_instance <= 0) {
+    // 使用短期线程带超时打开设备
+    auto openWithTimeout = [&](const char* ip, sint8 &outInst, int timeoutMs)->bool {
+        QFuture<sint8> fut = QtConcurrent::run([ip]() { return UFr_Open_Wrapper(const_cast<char*>(ip)); });
+        QFutureWatcher<sint8> watcher;
+        QEventLoop loop;
+        QObject::connect(&watcher, &QFutureWatcher<sint8>::finished, &loop, &QEventLoop::quit);
+        watcher.setFuture(fut);
+        QTimer timer;
+        timer.setSingleShot(true);
+        QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+        timer.start(timeoutMs);
+        loop.exec();
+        if (!fut.isFinished()) return false;
+        outInst = fut.result();
+        return outInst > 0;
+    };
+
+    if (!openWithTimeout(charPtr, m_instance, 10000)) {
         return 0;
     }
-
-    m_instance2 = UFr_Open_Wrapper(const_cast<char*>(charPtr2));
-    if (m_instance2 <= 0) {
+    if (!openWithTimeout(charPtr2, m_instance2, 10000)) {
         return 0;
     }
 
@@ -237,8 +233,8 @@ void FlexRayThread::updatestate()
     emit abChannelChanged(chAOk ? 1 : 0, chBOk ? 1 : 0);
 }
 FlexRayThread::~FlexRayThread() {
-    stop();  // 确保线程安全退出
-    wait();  // 等待线程结束
+    // 请求停止，不再调用 wait()（不是 QThread）
+    stop();
 }
 
 //发送
@@ -417,7 +413,8 @@ void FlexRayThread::Init_instance()
 //开始
 void FlexRayThread::startFlexRayOperation() {
     LOG("startFlexRayOperation 进入");
-    QMutexLocker locker(&m_mutex);
+    LOG(QString("startFlexRayOperation: currentThread=%1 this->thread=%2").arg((quintptr)QThread::currentThread(),0,16).arg((quintptr)this->thread(),0,16));
+    // QMutexLocker locker(&m_mutex);
     if (!m_running) {
         LOG("m_running=false, 开始初始化");
         if (m_instance > 0) { LOG("关闭旧实例1"); UFr_Stop_Wrapper(m_instance, 0); UFr_Close_Wrapper(m_instance); }
@@ -427,22 +424,42 @@ void FlexRayThread::startFlexRayOperation() {
         const char* charPtr = "192.168.0.7";
         const char* charPtr2 = "192.168.0.8";
 
-        m_instance = UFr_Open_Wrapper(const_cast<char*>(charPtr));
-        LOG(QString("m_instance=%1").arg(m_instance));
-        if (m_instance <= 0) {
-            LOG("UFr_Open_Wrapper 192.168.0.7 失败!");
+        // 将 Open 操作放到短期线程中执行并带有超时保护（10s）
+        auto openWithTimeout = [&](const char* ip, sint8 &outInst, int timeoutMs)->bool {
+            QFuture<sint8> fut = QtConcurrent::run([ip]() {
+                return UFr_Open_Wrapper(const_cast<char*>(ip));
+            });
+            QFutureWatcher<sint8> watcher;
+            QEventLoop loop;
+            QObject::connect(&watcher, &QFutureWatcher<sint8>::finished, &loop, &QEventLoop::quit);
+            watcher.setFuture(fut);
+            QTimer timer;
+            timer.setSingleShot(true);
+            QObject::connect(&timer, &QTimer::timeout, &loop, &QEventLoop::quit);
+            timer.start(timeoutMs);
+            loop.exec();
+            if (!fut.isFinished()) {
+                LOG(QString("UFr_Open_Wrapper(%1) 超时 %2 ms").arg(ip).arg(timeoutMs));
+                return false;
+            }
+            outInst = fut.result();
+            return outInst > 0;
+        };
+
+        if (!openWithTimeout(charPtr, m_instance, 10000)) {
+            LOG("UFr_Open_Wrapper 192.168.0.7 失败或超时!");
             emit error("总线启动失败");
             return;
         }
+        LOG(QString("m_instance=%1").arg(m_instance));
 
         LOG("打开设备 192.168.0.8");
-        m_instance2 = UFr_Open_Wrapper(const_cast<char*>(charPtr2));
-        LOG(QString("m_instance2=%1").arg(m_instance2));
-        if (m_instance2 <= 0) {
-            LOG("UFr_Open_Wrapper 192.168.0.8 失败!");
+        if (!openWithTimeout(charPtr2, m_instance2, 10000)) {
+            LOG("UFr_Open_Wrapper 192.168.0.8 失败或超时!");
             emit error("总线启动失败");
             return;
         }
+        LOG(QString("m_instance2=%1").arg(m_instance2));
 
         LOG("调用 Init_instance...");
         Init_instance();
@@ -482,11 +499,10 @@ void FlexRayThread::startFlexRayOperation() {
             return;
         }
 
-        LOG("调用 this->start()...");
-        this->start();
-        LOG("调用 m_timer_state->start(1000)...");
-        m_timer_state->start(1000);
-        LOG("startFlexRayOperation 完成");
+            LOG("排入 runLoop 开始执行...");
+            // 在 worker 所在线程的事件循环中排入 runLoop 执行（非阻塞）
+            QMetaObject::invokeMethod(this, "runLoop", Qt::QueuedConnection);
+            LOG("startFlexRayOperation 完成");
     } else {
         LOG("m_running 已为true，跳过初始化");
     }
@@ -496,43 +512,73 @@ void FlexRayThread::startFlexRayOperation() {
 
 //停止
 void FlexRayThread::stop() {
+    // 首先标记停止请求
     m_running = false;
-    QThread::msleep(50);
-    QMutexLocker locker(&m_mutex);
-    if (m_instance > 0) UFr_Close_Wrapper(m_instance);
-    if (m_instance2 > 0) UFr_Close_Wrapper(m_instance2);
-    m_timer_state->stop();
+
+    // 立即尝试调用 UFr_Stop_Wrapper（不加锁）以唤醒可能在 UFr_Receive_Wrapper 中阻塞的调用。
+    if (m_instance > 0) {
+        LOG("stop(): 调用 UFr_Stop_Wrapper(m_instance, 0) 以唤醒阻塞");
+        UFr_Stop_Wrapper(m_instance, 0);
+    }
+    if (m_instance2 > 0) {
+        LOG("stop(): 调用 UFr_Stop_Wrapper(m_instance2, 0) 以唤醒阻塞");
+        UFr_Stop_Wrapper(m_instance2, 0);
+    }
+
+    // 作为后备，尝试关闭实例以释放底层资源（最多只能作为最后手段）
+    if (m_instance > 0) {
+        LOG("stop(): 尝试调用 UFr_Close_Wrapper(m_instance) 作为后备");
+        UFr_Close_Wrapper(m_instance);
+    }
+    if (m_instance2 > 0) {
+        LOG("stop(): 尝试调用 UFr_Close_Wrapper(m_instance2) 作为后备");
+        UFr_Close_Wrapper(m_instance2);
+    }
+
+    // 不在 stop() 中阻塞等待退出；调用者可以从 UI 线程轮询 isRunning() 或者监听信号
 }
 
-void FlexRayThread::run()
+void FlexRayThread::runLoop()
 {
-    LOG("FlexRay run() 线程启动");
+    LOG("FlexRay runLoop 启动");
     QElapsedTimer stateTimer;
     stateTimer.start();
     int noDataCount = 0;  // 连续无帧计数
-    while (true)
-    {
-        QMutexLocker locker(&m_mutex);
-        if (!m_running) {
-            LOG("FlexRay run() 退出");
-            break;
-        }
+    static int loopCnt = 0;
 
-        // 每1秒检查节点状态 (线程内无事件循环, QTimer不触发)
+    while (m_running)
+    {
+        // 每1秒检查节点状态
         if (stateTimer.elapsed() >= 1000) {
             updatestate();
             stateTimer.restart();
         }
 
-        uint ret;
+        // 读取本地副本的实例句柄，尽量缩小锁的作用域
+        sint8 localInstance = 0;
+        {
+            QMutexLocker locker(&m_mutex);
+            localInstance = m_instance;
+        }
+
+        uint ret = CMD_FAIL_STATUS;
         uint16 rcvData[20];
         QVector<uint16> t;
         uFlexrayFrameHead_t uFlexrayFrameHead;
-        static int loopCnt = 0;
+
         loopCnt++;
         bool gotData = false;
 
-        if ((ret = UFr_Receive_Wrapper(m_instance, &uFlexrayFrameHead, rcvData, 1000)) == CMD_SUCCESS)
+        if (localInstance > 0) {
+            // 调用底层阻塞接收（有超时参数），但不持有 m_mutex
+            ret = UFr_Receive_Wrapper(localInstance, &uFlexrayFrameHead, rcvData, 1000);
+        } else {
+            // 如果没有有效实例，短等待并跳过
+            QThread::msleep(200);
+            continue;
+        }
+
+        if (ret == CMD_SUCCESS)
         {
             gotData = true;
             for (int i = 0; i < uFlexrayFrameHead.payloadLength; i++) {
@@ -563,39 +609,49 @@ void FlexRayThread::run()
                 noDataCount = 0;
             }
             if (loopCnt <= 3 || loopCnt % 10 == 0)
-                LOG(QString("FlexRay run() 第%1轮 无数据").arg(loopCnt));
+                LOG(QString("FlexRay runLoop 第%1轮 无数据").arg(loopCnt));
             QThread::msleep(500);
         }
         else
         {
             noDataCount = 0;  // 有数据就重置
             if (loopCnt <= 3)
-                LOG(QString("FlexRay run() 第%1轮 有数据").arg(loopCnt));
+                LOG(QString("FlexRay runLoop 第%1轮 有数据").arg(loopCnt));
         }
 
         // FR_MP_5 发送 (槽ID=42, cycleOffset=11, 方向=TX)
         {
+            // 获取发送缓冲的本地副本，避免直接在发送过程中持锁
+            QVector<uint16> sendMP5Copy;
+            {
+                QMutexLocker locker(&m_mutex);
+                sendMP5Copy = m_sendData_MP5;
+            }
+
             uFlexrayFrame_t mFlexrayFrame_MP5;
-            int payloadLen = m_sendData_MP5.size();
+            int payloadLen = sendMP5Copy.size();
             mFlexrayFrame_MP5.payloadLength = payloadLen;
             for (int i = 0; i < payloadLen; i++) {
-                mFlexrayFrame_MP5.data[i] = m_sendData_MP5.at(i);
+                mFlexrayFrame_MP5.data[i] = sendMP5Copy.at(i);
             }
-            int ret = UFr_Transmit_Wrapper(m_instance, 0,
+
+            int tret = UFr_Transmit_Wrapper(localInstance, 0,
                                            gFlexrayMsgBufferParameter[2].msgBufferID,
                                            mFlexrayFrame_MP5.data,
                                            mFlexrayFrame_MP5.payloadLength);
-            if (ret != CMD_SUCCESS && loopCnt <= 3) {
-                LOG(QString("FlexRay TX MP5 fail ret=%1").arg(ret));
+            if (tret != CMD_SUCCESS && loopCnt <= 3) {
+                LOG(QString("FlexRay TX MP5 fail ret=%1").arg(tret));
             }
         }
 
         static int clearCount = 0;
         if (++clearCount >= 100) {
-            UFr_ClearRcvBuffer_Wrapper(m_instance, 0);
+            UFr_ClearRcvBuffer_Wrapper(localInstance, 0);
             clearCount = 0;
         }
 
         QThread::msleep(1);
     }
+
+    LOG("FlexRay runLoop 退出");
 }

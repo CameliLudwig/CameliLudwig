@@ -1,44 +1,59 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "mkdir",
-            "type": "shell",
-            "options": {
-                "cwd": "${workspaceFolder}"
-            },
-            "command": "mkdir",
-            "args": [
-                "-Force",
-                "build"
-            ]
-        },
-        {
-            "label": "msvc-qmake-debug",
-            "type": "process",
-            "options": {
-                "cwd": "${workspaceFolder}/build"
-            },
-            "command": ".\\msvc_qmake_debug.bat",
-            "args": [],
-            "dependsOn": ["mkdir"]
-        },
-        {
-            "label": "msvc-nmake-debug",
-            "type": "process",
-            "options": {
-                "cwd": "${workspaceFolder}/build"
-            },
-            "command": ".\\msvc_nmake_debug.bat",
-            "args": [],
-            "dependsOn": ["msvc-qmake-debug"],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "problemMatcher": [
-                "$msCompile"
-            ]
-        }
-    ]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "msvc-qmake-debug",
+      "type": "process",
+      "command": ".\\msvc_qmake_debug.bat",
+      "options": { "cwd": "${workspaceFolder}\\build" },
+      "problemMatcher": []
+    },
+    {
+      "label": "msvc-nmake-debug",
+      "type": "process",
+      "command": ".\\msvc_nmake_debug.bat",
+      "options": { "cwd": "${workspaceFolder}\\build" },
+      "dependsOn": ["msvc-qmake-debug"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$msCompile"]
+    },
+    {
+      "label": "build-msvc",
+      "dependsOn": ["msvc-qmake-debug", "msvc-nmake-debug"],
+      "dependsOrder": "sequence",
+      "type": "shell",
+      "problemMatcher": []
+    },
+    {
+      "label": "mingw-clean",
+      "type": "shell",
+      "command": "mingw32-make",
+      "args": ["-f", "Makefile.Debug", "clean"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "mingw-build",
+      "type": "shell",
+      "command": "mingw32-make",
+      "args": ["-f", "Makefile.Debug"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": ["$gcc"],
+      "group": { "kind": "build", "isDefault": false }
+    },
+    {
+      "label": "build-mingw",
+      "dependsOn": ["mingw-clean", "mingw-build"],
+      "dependsOrder": "sequence",
+      "type": "shell",
+      "problemMatcher": []
+    },
+    {
+      "label": "clean-exe",
+      "type": "shell",
+      "command": "cmd",
+      "args": ["/C", "if exist \"${workspaceFolder}\\build\\debug\\ProtectiveAcquisitionDrive.exe\" del /F /Q \"${workspaceFolder}\\build\\debug\\ProtectiveAcquisitionDrive.exe\""]
+    }
+  ]
 }
+
